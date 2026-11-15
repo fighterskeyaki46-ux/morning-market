@@ -111,6 +111,31 @@
   #results .sym { font-weight: 700; }
   #results .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
   .empty { color: var(--muted); font-size: 13px; }
+  .add button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; }
+  .wmsg { font-size: 12.5px; color: var(--muted); margin: -4px 0 10px; }
+  .gh-setup { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; font-size: 13px; max-width: 620px; }
+  .gh-setup ol { margin: 6px 0 10px; padding-left: 20px; line-height: 1.7; }
+  .gh-setup b { font-weight: 700; }
+  .linkbtn { background: none; border: 0; padding: 0; color: var(--accent); font-size: 12.5px; cursor: pointer; text-decoration: underline; }
+
+  /* スマホ：2列に並べて、文字とチャートを少し小さく */
+  @media (max-width: 600px) {
+    main { padding: 4px 10px 40px; }
+    .top-in { padding: 8px 10px; gap: 8px; }
+    .top h1 { font-size: 15px; }
+    .seg button { padding: 4px 8px; font-size: 11.5px; }
+    h2 { margin: 14px 0 6px; }
+    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .tile { padding: 6px 7px 4px; border-radius: 8px; }
+    .t-name { font-size: 11.5px; }
+    .t-pct { font-size: 11px; padding: 0 4px; }
+    .t-price { font-size: 15.5px; margin-top: 2px; }
+    .t-chg { font-size: 10.5px; margin-left: 3px; }
+    .tile svg, .rangebar { height: 40px; }
+    .t-foot { font-size: 9.5px; }
+    .tile.link { min-height: 96px; }
+    .tag { font-size: 9px; padding: 0 3px; }
+  }
 
   /* チャート（モーダル） */
   .modal { position: fixed; inset: 0; z-index: 50; background: rgba(10,12,16,.55); display: none; align-items: center; justify-content: center; padding: 16px; }
@@ -328,9 +353,9 @@ function vixTag(v) {
 }
 
 function tile(q) {
-  const rm = q.removable && !STATIC ? `<button class="rm" data-rm="${esc(q.symbol)}" title="ウォッチリストから削除">×</button>` : "";
+  const rm = q.removable && (!STATIC || ghToken()) ? `<button class="rm" data-rm="${esc(q.symbol)}" title="ウォッチリストから削除">×</button>` : "";
   const name = q.removable ? `${esc(q.name)}` : esc(q.name);
-  if (q.error) return `<div class="tile" data-key="${esc(q.key)}">${rm}<div class="t-name">${name}</div><div class="err">取得失敗: ${esc(q.error)}</div></div>`;
+  if (q.error) return `<div class="tile" data-key="${esc(q.key)}">${rm}<div class="t-name">${name}</div><div class="err"${q.pending ? ` style="color:var(--muted)"` : ""}>${q.pending ? "" : "取得失敗: "}${esc(q.error)}</div></div>`;
   const d = digitsOf(q, q.price);
   const cls = Math.abs(q.changePct) < 0.005 ? "flat" : goodCls(q, q.change);
   let tag = "";
@@ -356,12 +381,8 @@ function linkTile(l) {
 function renderSections() {
   const searchVal = document.getElementById("q")?.value || "";
   document.getElementById("sections").innerHTML = GROUPS.map((g) => {
-    const items = state.quotes.filter((q) => q.group === g.id);
-    const add = g.id === "watch" && STATIC ? `
-      <div class="empty" style="margin-bottom:10px">
-        銘柄の追加・削除は GitHub の <a href="${watchlistEditUrl()}" target="_blank" rel="noopener">watchlist.json を編集 ↗</a>
-        （例：<code>{ "symbol": "7203.T" }</code>。日本株は証券コード＋「.T」、米国株はティッカー）。次回の自動更新で反映されます。
-      </div>` : g.id === "watch" ? `
+    const items = g.id === "watch" && STATIC ? watchItems() : state.quotes.filter((q) => q.group === g.id);
+    const add = g.id === "watch" && STATIC ? staticWatchUI(items.length) : g.id === "watch" ? `
       <div class="add">
         <input id="q" placeholder="銘柄を追加：証券コード（7203）、ティッカー（NVDA）、英語名（toyota）" autocomplete="off">
         <ul id="results"></ul>
@@ -370,6 +391,7 @@ function renderSections() {
     return `<h2>${g.title}</h2>${add}
       <div class="grid">${items.map(tile).join("")}${(LINKS[g.id] || []).map(linkTile).join("")}</div>`;
   }).join("");
+  document.getElementById("wq")?.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) staticAdd(); });
   const input = document.getElementById("q");
   if (!input) return;
   input.value = searchVal;
@@ -458,7 +480,12 @@ document.getElementById("sections").addEventListener("click", (e) => {
   const li = e.target.closest("#results li[data-i]");
   if (li) { addSymbol(searchResults[+li.dataset.i]); return; }
   const rm = e.target.closest(".rm");
-  if (rm) { e.stopPropagation(); removeSymbol(rm.dataset.rm); return; }
+  if (rm) { e.stopPropagation(); STATIC ? staticRemove(rm.dataset.rm) : removeSymbol(rm.dataset.rm); return; }
+  const act = e.target.closest("[data-act]")?.dataset.act;
+  if (act === "add") return staticAdd();
+  if (act === "setup") { state.showSetup = !state.showSetup; return renderSections(); }
+  if (act === "savetoken") return saveToken();
+  if (act === "cleartoken") { if (confirm("この端末に登録した鍵を削除しますか？")) { store.set("mm.ghToken", ""); state.wmsg = "鍵を削除しました"; renderSections(); } return; }
   const t = e.target.closest(".tile[data-key]:not(.nochart)");
   if (t) openChart(t.dataset.key);
 });
@@ -736,11 +763,153 @@ async function getChart(key, range) {
   return { key, range, intraday: false, ohlc: series[0]?.length >= 5, series };
 }
 
-// GitHub Pages 版のウォッチリスト編集リンク（https://ユーザー.github.io/リポジトリ/ → GitHub の編集画面）
-function watchlistEditUrl() {
-  const owner = location.hostname.split(".")[0];
-  const repo = location.pathname.split("/").filter(Boolean)[0] || "";
-  return `https://github.com/${owner}/${repo}/edit/main/watchlist.json`;
+/* ---------- GitHub Pages 版のウォッチリスト（GitHub の watchlist.json をページから直接書き換える） ---------- */
+// 書き換えには、このリポジトリの Contents 書き込み権限だけを持つ GitHub トークンを使う（端末のブラウザ内に保存）。
+// 書き換えると GitHub Actions が動いてデータを取り直し、1〜2分でページに反映される。
+const GH = { owner: location.hostname.split(".")[0], repo: location.pathname.split("/").filter(Boolean)[0] || "" };
+const ghToken = () => store.get("mm.ghToken", "");
+const SYMBOL_RE = /^[\^A-Z0-9][A-Z0-9.=\-^]{0,19}$/;
+const normalizeSymbol = (q) => {
+  const s = q.trim().toUpperCase().replace(/[０-９Ａ-Ｚ．]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)); // 全角→半角
+  return /^\d{3}[0-9A-Z]$/.test(s) ? s + ".T" : s;
+};
+
+async function gh(pathname, opts = {}) {
+  const res = await fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}${pathname}`, {
+    ...opts,
+    headers: { Authorization: `Bearer ${ghToken()}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(res.status === 401 ? "鍵が無効です（期限切れか入力ミス）。鍵を登録し直してください"
+      : res.status === 403 || res.status === 404 ? "鍵に書き込み権限がありません（Contents: Read and write が必要です）"
+      : res.status === 409 ? "同時に更新されました。もう一度お試しください"
+      : body.message || `HTTP ${res.status}`);
+  }
+  return body;
+}
+const b64e = (s) => btoa(Array.from(new TextEncoder().encode(s), (b) => String.fromCharCode(b)).join(""));
+const b64d = (s) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s/g, "")), (c) => c.charCodeAt(0)));
+async function ghReadWatchlist() {
+  const f = await gh("/contents/watchlist.json?ref=main");
+  const list = JSON.parse(b64d(f.content));
+  return { sha: f.sha, list: Array.isArray(list) ? list : [] };
+}
+const ghWriteWatchlist = (list, sha, message) => gh("/contents/watchlist.json", {
+  method: "PUT",
+  body: JSON.stringify({ message, branch: "main", sha, content: b64e(JSON.stringify(list, null, 2) + "\n") }),
+});
+
+// 反映待ちの追加・削除（再読み込みしても15分は覚えておく）
+let pending = (() => {
+  try {
+    const p = JSON.parse(store.get("mm.pending", "{}"));
+    const fresh = (o) => Object.fromEntries(Object.entries(o || {}).filter(([, t]) => Date.now() - t < 15 * 60e3));
+    return { add: fresh(p.add), remove: fresh(p.remove) };
+  } catch { return { add: {}, remove: {} }; }
+})();
+const savePending = () => store.set("mm.pending", JSON.stringify(pending));
+const hasPending = () => Object.keys(pending.add).length + Object.keys(pending.remove).length > 0;
+
+function watchItems() {
+  const list = state.quotes.filter((q) => q.group === "watch" && !pending.remove[q.symbol]);
+  for (const sym of Object.keys(pending.add)) {
+    if (!list.some((q) => q.symbol === sym)) {
+      list.push({ key: "w:" + sym, symbol: sym, name: sym, group: "watch", removable: true, pending: true, error: "反映待ち（1〜2分）…" });
+    }
+  }
+  return list;
+}
+
+function staticWatchUI(count) {
+  const msg = state.wmsg ? `<div class="wmsg">${esc(state.wmsg)}</div>` : "";
+  if (!ghToken() || state.showSetup) {
+    return `<div class="gh-setup">
+      <div><b>ページから銘柄を追加・削除するための準備（最初の1回だけ）</b></div>
+      <div style="color:var(--muted);margin-top:4px">GitHubの「鍵（トークン）」を作って、この端末に登録します。鍵はこの端末のブラウザ内にだけ保存され、このリポジトリのファイル編集にしか使えません。</div>
+      <ol>
+        <li><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHubで鍵の作成画面を開く ↗</a></li>
+        <li><b>Token name</b>：自由（例：morning-market）、<b>Expiration</b>：自由（切れたら作り直し）</li>
+        <li><b>Repository access</b>：「Only select repositories」→「${esc(GH.repo)}」を選択</li>
+        <li><b>Permissions</b> →「Add permissions」→「<b>Contents</b>」を選び、「<b>Read and write</b>」に変更</li>
+        <li>「Generate token」を押し、表示された鍵（github_pat_…）をコピーして下に貼り付け</li>
+      </ol>
+      <div class="add" style="margin-bottom:0">
+        <input id="ghtoken" type="password" placeholder="github_pat_…" autocomplete="off">
+        <button class="primary" data-act="savetoken">登録</button>
+      </div>
+      ${ghToken() ? `<div style="margin-top:8px"><button class="linkbtn" data-act="setup">閉じる</button></div>` : ""}
+    </div>${msg}`;
+  }
+  return `<div class="add">
+      <input id="wq" placeholder="証券コード（7203）かティッカー（NVDA）" autocomplete="off" autocapitalize="characters" enterkeyhint="done">
+      <button class="primary" data-act="add">追加</button>
+    </div>${msg}
+    ${count ? "" : `<div class="empty">まだ銘柄がありません。</div>`}
+    <div style="margin:-4px 0 8px"><button class="linkbtn" data-act="cleartoken">この端末の鍵を削除</button></div>`;
+}
+
+async function saveToken() {
+  const v = document.getElementById("ghtoken").value.trim();
+  if (!v) return;
+  const prev = ghToken();
+  store.set("mm.ghToken", v);
+  state.wmsg = "鍵を確認中…"; renderSections();
+  try {
+    await ghReadWatchlist(); // 読めるか確認（書き込み権限は最初の追加時に確認される）
+    state.showSetup = false;
+    state.wmsg = "鍵を登録しました。銘柄を追加できます";
+  } catch (e) {
+    store.set("mm.ghToken", prev);
+    state.wmsg = "登録できませんでした：" + e.message;
+  }
+  renderSections();
+}
+
+async function staticAdd() {
+  const input = document.getElementById("wq");
+  const sym = normalizeSymbol(input?.value || "");
+  if (!SYMBOL_RE.test(sym)) { state.wmsg = "証券コード（例：7203）かティッカー（例：NVDA）を入力してください"; return renderSections(); }
+  state.wmsg = `${sym} を追加中…`; renderSections();
+  try {
+    const { sha, list } = await ghReadWatchlist();
+    if (list.some((w) => w.symbol === sym)) { state.wmsg = `${sym} はすでに登録されています`; return renderSections(); }
+    list.push({ symbol: sym });
+    await ghWriteWatchlist(list, sha, `ウォッチリストに ${sym} を追加`);
+    pending.add[sym] = Date.now(); delete pending.remove[sym]; savePending();
+    state.wmsg = `${sym} を追加しました。1〜2分で表示されます`;
+    schedulePoll();
+  } catch (e) {
+    state.wmsg = "追加できませんでした：" + e.message;
+  }
+  renderSections();
+}
+
+async function staticRemove(sym) {
+  if (!confirm(`${sym} をウォッチリストから削除しますか？`)) return;
+  try {
+    const { sha, list } = await ghReadWatchlist();
+    await ghWriteWatchlist(list.filter((w) => w.symbol !== sym), sha, `ウォッチリストから ${sym} を削除`);
+    pending.remove[sym] = Date.now(); delete pending.add[sym]; savePending();
+    state.wmsg = `${sym} を削除しました`;
+    schedulePoll();
+  } catch (e) {
+    state.wmsg = "削除できませんでした：" + e.message;
+  }
+  renderSections();
+}
+
+// 反映待ちがある間は30秒ごとに読み直す
+let pollTimer = null;
+function schedulePoll() {
+  if (pollTimer || !hasPending()) return;
+  pollTimer = setTimeout(() => { pollTimer = null; load(); }, 30e3);
+}
+function resolvePending() {
+  for (const sym of Object.keys(pending.add)) if (state.quotes.some((q) => q.symbol === sym && q.group === "watch")) delete pending.add[sym];
+  for (const sym of Object.keys(pending.remove)) if (!state.quotes.some((q) => q.symbol === sym && q.group === "watch")) delete pending.remove[sym];
+  savePending();
+  if (!hasPending() && /追加しました|削除しました/.test(state.wmsg || "")) state.wmsg = "";
 }
 
 /* ---------- 読み込み ---------- */
@@ -751,6 +920,7 @@ async function load(refresh = false) {
     const data = await getMarket(refresh);
     if (data.error) throw new Error(data.error);
     state.quotes = data.quotes;
+    if (STATIC) { resolvePending(); schedulePoll(); }
     renderSections();
     document.getElementById("updated").textContent = `データ取得 ${dt(data.fetchedAt)}${STATIC ? "（自動更新：朝は15分ごと、他は1時間ごと）" : ""} ・ タイルをクリックでチャート`;
   } catch (e) {
