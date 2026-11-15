@@ -1,0 +1,9 @@
+{
+  "name": "morning-market",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "collect": "node scripts/collect.js _site/data"
+  }
+}

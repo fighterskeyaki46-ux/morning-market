@@ -1,0 +1,767 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Morning Market</title>
+<style>
+  :root {
+    --bg: #eef0f3; --card: #ffffff; --text: #1b1d21; --muted: #6b7079; --line: #dfe2e7; --grid: #eceef1;
+    --up: #0f9d58; --down: #e0342b; --flat: #8a8f98; --accent: #2f5bd3; --head: #1f2a3a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1114; --card: #181b20; --text: #eef0f3; --muted: #9298a2; --line: #2a2e35; --grid: #23272d;
+      --up: #2fc47a; --down: #ff5d52; --flat: #7c828c; --accent: #7aa2ff; --head: #222a36;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  body.modal-open { overflow: hidden; }
+  button {
+    background: var(--card); color: var(--text); border: 1px solid var(--line);
+    border-radius: 7px; padding: 6px 12px; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  button:hover { border-color: var(--accent); }
+  a { color: var(--accent); }
+
+  /* ヘッダー */
+  .top { position: sticky; top: 0; z-index: 20; background: var(--head); color: #fff; }
+  .top-in { max-width: 1400px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .top h1 { font-size: 17px; margin: 0; letter-spacing: .03em; }
+  .top .sub { font-size: 12px; opacity: .75; }
+  .top .sp { flex: 1; }
+  .seg { display: flex; background: rgba(255,255,255,.1); border-radius: 8px; padding: 2px; }
+  .seg button { background: transparent; border: 0; color: rgba(255,255,255,.75); padding: 5px 10px; border-radius: 6px; font-size: 12.5px; }
+  .seg button.on { background: #fff; color: #1b1d21; font-weight: 700; }
+  .top .refresh { background: transparent; color: #fff; border-color: rgba(255,255,255,.3); }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 8px 16px 48px; }
+  h2 {
+    font-size: 13px; margin: 18px 0 8px; font-weight: 700; letter-spacing: .04em;
+    display: flex; align-items: center; gap: 8px;
+  }
+  h2::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+  /* タイル */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 8px; }
+  .tile {
+    --tint: var(--flat); --amt: 0%;
+    position: relative; min-width: 0; cursor: pointer; overflow: hidden;
+    background: color-mix(in srgb, var(--tint) var(--amt), var(--card));
+    border: 1px solid color-mix(in srgb, var(--tint) calc(var(--amt) * 2), var(--line));
+    border-radius: 10px; padding: 8px 10px 6px; transition: transform .1s, box-shadow .1s;
+  }
+  .tile:hover { box-shadow: 0 4px 14px rgba(0,0,0,.12); transform: translateY(-1px); }
+  .tile.up { --tint: var(--up); } .tile.down { --tint: var(--down); }
+  .tile.l1 { --amt: 6%; } .tile.l2 { --amt: 12%; } .tile.l3 { --amt: 20%; }
+  .t-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+  .t-name { font-size: 12.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .t-pct {
+    font-size: 12px; font-weight: 700; color: #fff; background: var(--tint); border-radius: 5px;
+    padding: 1px 6px; white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .t-price { font-size: 19px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .t-chg { font-size: 12px; font-weight: 600; margin-left: 4px; }
+  .up .t-chg { color: var(--up); } .down .t-chg { color: var(--down); } .flat .t-chg { color: var(--muted); }
+  .tile svg { width: 100%; height: 54px; display: block; margin-top: 4px; }
+  .t-foot { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; gap: 4px; }
+  .t-foot span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tag { font-size: 10px; padding: 0 5px; border-radius: 4px; border: 1px solid currentColor; font-weight: 700; margin-left: 4px; }
+  .tag.up { color: var(--up); } .tag.down { color: var(--down); }
+  .err { color: var(--down); font-size: 12px; margin-top: 8px; }
+  .tile.nochart { cursor: default; }
+  .tile.nochart:hover { transform: none; box-shadow: none; }
+  /* 当日レンジバー（安値〜高値の中の現在位置） */
+  .rangebar { height: 54px; margin-top: 4px; display: flex; flex-direction: column; justify-content: center; gap: 5px; }
+  .rangebar .bar { position: relative; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--muted) 25%, transparent); }
+  .rangebar .open { position: absolute; top: -3px; width: 2px; height: 12px; background: var(--muted); }
+  .rangebar .now { position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%; transform: translate(-50%, -50%); background: var(--tint); border: 2px solid var(--card); }
+  .rangebar .lbl { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .tile.link { cursor: default; display: flex; flex-direction: column; justify-content: space-between; min-height: 120px; }
+  .tile.link:hover { transform: none; box-shadow: none; }
+  .tile.link .desc { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+  .tile.link a { font-size: 13px; font-weight: 700; text-decoration: none; }
+
+  .rm {
+    position: absolute; bottom: 4px; right: 4px; border: 0; background: var(--card); color: var(--muted);
+    font-size: 14px; line-height: 1; padding: 3px 6px; border-radius: 5px; opacity: 0; transition: opacity .15s;
+  }
+  .tile:hover .rm, .rm:focus { opacity: 1; }
+  @media (hover: none) { .rm { opacity: .8; } }
+  .rm:hover { color: var(--down); }
+
+  /* 銘柄追加 */
+  .add { position: relative; display: flex; gap: 8px; margin-bottom: 10px; max-width: 520px; }
+  .add input {
+    flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 8px 12px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--card); color: var(--text);
+  }
+  .add input:focus { outline: none; border-color: var(--accent); }
+  #results {
+    position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; z-index: 10; list-style: none; padding: 4px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.15);
+  }
+  #results:empty { display: none; }
+  #results li { padding: 8px 10px; border-radius: 7px; cursor: pointer; display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; }
+  #results li:hover, #results li.on { background: var(--bg); }
+  #results .sym { font-weight: 700; }
+  #results .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .empty { color: var(--muted); font-size: 13px; }
+
+  /* チャート（モーダル） */
+  .modal { position: fixed; inset: 0; z-index: 50; background: rgba(10,12,16,.55); display: none; align-items: center; justify-content: center; padding: 16px; }
+  .modal.open { display: flex; }
+  .chart-card { background: var(--card); border-radius: 16px; padding: 16px 18px 10px; width: 100%; max-width: 980px; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .chart-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+  .chart-title { font-size: 15px; font-weight: 700; }
+  .chart-price { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .chg { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .chg.up { color: var(--up); } .chg.down { color: var(--down); }
+  .tabs { display: flex; gap: 2px; background: var(--bg); padding: 3px; border-radius: 9px; }
+  .tabs button { border: 0; background: transparent; padding: 6px 10px; border-radius: 7px; color: var(--muted); }
+  .tabs button.on { background: var(--card); color: var(--text); font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+  .tabs.hide { display: none; }
+  .close { border: 0; background: transparent; font-size: 22px; line-height: 1; padding: 2px 8px; color: var(--muted); }
+  #chart { position: relative; height: min(420px, 55vh); margin-top: 8px; }
+  #chart svg { width: 100%; height: 100%; display: block; }
+  #chart .axis { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+  #tip {
+    position: absolute; pointer-events: none; background: var(--text); color: var(--bg); z-index: 2;
+    font-size: 12px; padding: 5px 8px; border-radius: 6px; white-space: nowrap; display: none;
+    font-variant-numeric: tabular-nums; transform: translate(-50%, -115%);
+  }
+  .chart-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
+  .chart-note { font-size: 11.5px; color: var(--muted); margin: 4px 0 2px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="top-in">
+    <div>
+      <h1>☀️ Morning Market</h1>
+      <div class="sub" id="updated">読み込み中…</div>
+    </div>
+    <div class="sp"></div>
+    <div class="seg" id="tilekind" title="タイルのチャートの種類">
+      <button data-k="candle">ローソク足</button><button data-k="line">折れ線</button>
+    </div>
+    <div class="seg" id="tilerange" title="タイルのミニチャートの期間">
+      <button data-r="1d">1日</button><button data-r="30d">30日</button><button data-r="6mo">6ヶ月</button><button data-r="1y">1年</button>
+    </div>
+    <button class="refresh" id="refresh">更新</button>
+  </div>
+</div>
+
+<main id="sections"></main>
+
+<div class="modal" id="modal">
+  <section class="chart-card" role="dialog" aria-modal="true">
+    <div class="chart-head">
+      <div>
+        <div class="chart-title" id="c-title">—</div>
+        <div><span class="chart-price" id="c-price"></span> <span class="chg" id="c-chg"></span></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <div class="tabs" id="kind"><button data-k="candle">ローソク足</button><button data-k="line">ライン</button></div>
+        <div class="tabs" id="tabs">
+          <button data-r="1d">1日</button><button data-r="5d">5日</button><button data-r="1mo">1ヶ月</button><button data-r="3mo">3ヶ月</button><button data-r="6mo">6ヶ月</button><button data-r="1y">1年</button>
+        </div>
+        <button class="close" id="close" title="閉じる（Esc）">×</button>
+      </div>
+    </div>
+    <div id="chart"><div id="tip"></div></div>
+    <div class="chart-note" id="c-note"></div>
+  </section>
+</div>
+
+<script>
+const GROUPS = [
+  { id: "jp", title: "🇯🇵 日本" },
+  { id: "us", title: "🇺🇸 米国" },
+  { id: "fut", title: "⏱ 米国先物" },
+  { id: "eu", title: "🇪🇺 欧州" },
+  { id: "asia", title: "🌏 アジア・オセアニア" },
+  { id: "fx", title: "💱 為替" },
+  { id: "rate", title: "📈 金利" },
+  { id: "cmd", title: "🛢 商品" },
+  { id: "crypto", title: "₿ 暗号資産" },
+  { id: "watch", title: "📌 ウォッチリスト" },
+];
+const LINKS = {
+  jp: [{ name: "日経平均VI", desc: "日本版の恐怖指数。自動取得できないため公式ページで確認", url: "https://indexes.nikkei.co.jp/nkave/index/profile?idx=nk225vi" }],
+  us: [{ name: "Fear & Greed", desc: "CNN 投資家心理指数（0=極度の恐怖〜100=極度の強欲）", url: "https://edition.cnn.com/markets/fear-and-greed" }],
+};
+const RANGE_LABEL = { "1d": "1日", "5d": "5日", "1mo": "1ヶ月", "3mo": "3ヶ月", "6mo": "6ヶ月", "1y": "1年", "30d": "30日" };
+const RANGE_DAYS = { "1mo": 31, "6mo": 183, "1y": 366 };
+
+const store = {
+  get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+let state = {
+  quotes: [], sel: null,
+  range: store.get("mm.range2", "1y"), kind: store.get("mm.kind", "candle"),
+  tileRange: store.get("mm.tileRange3", "30d"), tileKind: store.get("mm.tileKind", "candle"),
+};
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const digitsOf = (q, v) => q.digits ?? (Math.abs(v) >= 10 ? 2 : 3);
+const fmt = (n, d = 2) => n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const sgn = (n) => (n >= 0 ? "+" : "");
+const JST = { timeZone: "Asia/Tokyo" };
+const dt = (ms) => new Date(ms).toLocaleString("ja-JP", { ...JST, month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" });
+const goodCls = (q, delta) => ((q.invert ? delta <= 0 : delta >= 0) ? "up" : "down");
+
+/* ---------- タイル ---------- */
+function level(pct) {
+  const a = Math.abs(pct);
+  return a < 0.05 ? "" : a < 0.5 ? "l1" : a < 1.5 ? "l2" : "l3";
+}
+
+// ミニチャート。base を渡すと前日終値の点線を引き、その上下で色分け
+function mini(vals, base, cls) {
+  const w = 200, h = 54, pad = 3;
+  if (vals.length < 2) return `<svg viewBox="0 0 ${w} ${h}"></svg>`;
+  const all = base != null ? [...vals, base] : vals;
+  const min = Math.min(...all), max = Math.max(...all);
+  const x = (i) => (i / (vals.length - 1)) * w;
+  const y = (v) => h - pad - ((v - min) / (max - min || 1)) * (h - pad * 2);
+  const d = vals.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  const c = `var(--${cls})`;
+  const by = base != null ? y(base) : h;
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <path d="${d}L${w},${by}L0,${by}Z" fill="${c}" opacity=".14"/>
+    ${base != null ? `<line x1="0" x2="${w}" y1="${by}" y2="${by}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke" opacity=".8"/>` : ""}
+    <path d="${d}" fill="none" stroke="${c}" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+function rangeBar(q) {
+  const d = digitsOf(q, q.price), span = q.high - q.low || 1;
+  const pos = (v) => Math.max(0, Math.min(100, ((v - q.low) / span) * 100));
+  return `<div class="rangebar">
+    <div class="bar"><div class="open" style="left:${pos(q.open)}%" title="始値"></div><div class="now" style="left:${pos(q.price)}%"></div></div>
+    <div class="lbl"><span>安 ${fmt(q.low, 0)}</span><span>始 ${fmt(q.open, 0)}</span><span>高 ${fmt(q.high, 0)}</span></div>
+  </div>`;
+}
+
+// ミニ・ローソク足。rows = [[始, 高, 安, 終], ...]
+function miniCandles(rows, base) {
+  const w = 200, h = 54, pad = 3;
+  if (rows.length < 2) return `<svg viewBox="0 0 ${w} ${h}"></svg>`;
+  const all = rows.flatMap((r) => [r[1], r[2]]).concat(base != null ? [base] : []);
+  const min = Math.min(...all), max = Math.max(...all);
+  const y = (v) => h - pad - ((v - min) / (max - min || 1)) * (h - pad * 2);
+  const slot = w / rows.length, bw = Math.max(1, slot * 0.66);
+  const bars = rows.map(([o, hi, lo, c], i) => {
+    const cx = slot * (i + 0.5), col = c >= o ? "var(--up)" : "var(--down)";
+    const top = y(Math.max(o, c)), bot = y(Math.min(o, c));
+    return `<line x1="${cx}" x2="${cx}" y1="${y(hi)}" y2="${y(lo)}" stroke="${col}" stroke-width="1" vector-effect="non-scaling-stroke"/>
+      <rect x="${cx - bw / 2}" y="${top}" width="${bw}" height="${Math.max(0.8, bot - top)}" fill="${col}"/>`;
+  }).join("");
+  const bl = base != null ? `<line x1="0" x2="${w}" y1="${y(base)}" y2="${y(base)}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke" opacity=".8"/>` : "";
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${bl}${bars}</svg>`;
+}
+
+// 日中の値（5分ごとの終値）を n 本の足にまとめる。始値＝前の足の終値（最初の足は前日終値）
+function bucketCandles(vals, n, first) {
+  const size = Math.max(1, Math.ceil(vals.length / n));
+  const out = [];
+  let prev = first ?? vals[0];
+  for (let i = 0; i < vals.length; i += size) {
+    const seg = vals.slice(i, i + size), c = seg.at(-1);
+    out.push([prev, Math.max(prev, ...seg), Math.min(prev, ...seg), c]);
+    prev = c;
+  }
+  return out;
+}
+
+// 日足 → 週足（月曜始まり・日本時間）
+function weekly(rows) {
+  const out = [];
+  let key = null;
+  for (const [t, c, o, h, l] of rows) {
+    const d = new Date(t + 9 * 3600e3);
+    const k = Math.floor((d.getTime() / 86400e3 + 3) / 7); // 1970/1/1は木曜 → +3で月曜区切り
+    if (k !== key) { out.push([o, h, l, c]); key = k; }
+    else { const r = out.at(-1); r[1] = Math.max(r[1], h); r[2] = Math.min(r[2], l); r[3] = c; }
+  }
+  return out;
+}
+
+function tileChart(q) {
+  if (q.noChart) return { svg: rangeBar(q), label: "当日レンジ・15分遅れ" };
+  if (q.months) {
+    // VIX先物：期間構造（左=期近 → 右=期先）
+    return { svg: mini(q.months.map((m) => m.price), null, q.structure === "contango" ? "up" : "down"), label: "期間構造" };
+  }
+  const r = state.tileRange, candle = state.tileKind === "candle";
+  if (r === "1d" && q.intraday && q.intraday.length > 1) {
+    const vals = q.intraday.map((p) => p[1]);
+    return candle
+      ? { svg: miniCandles(bucketCandles(vals, 26, q.prevClose), q.prevClose), label: "1日・約15分足" }
+      : { svg: mini(vals, q.prevClose, goodCls(q, q.change)), label: "1日" };
+  }
+  // 日足：1日モードでも日中データが無い銘柄（日本10年債など）は直近1ヶ月を表示
+  const rr = r === "1d" ? "1mo" : r;
+  // 30日＝直近30営業日（日足30本）。それ以外は期間で切り出し
+  const rows = rr === "30d" ? q.daily.slice(-30) : q.daily.filter((p) => p[0] >= Date.now() - RANGE_DAYS[rr] * 86400e3);
+  if (candle && rows.length > 1 && rows[0].length >= 5) {
+    // 30日・1ヶ月は日足、6ヶ月・1年は週足（タイルの幅で潰れないように）
+    return rr === "30d" || rr === "1mo"
+      ? { svg: miniCandles(rows.map(([, c, o, h, l]) => [o, h, l, c])), label: RANGE_LABEL[rr] + "・日足" }
+      : { svg: miniCandles(weekly(rows)), label: RANGE_LABEL[rr] + "・週足" };
+  }
+  const pts = rows.map((p) => p[1]);
+  return { svg: mini(pts, null, goodCls(q, pts.at(-1) - pts[0])), label: RANGE_LABEL[rr] + "・日足" };
+}
+
+function vixTag(v) {
+  if (v < 15) return ["低", "up"];
+  if (v < 20) return ["平常", "up"];
+  if (v < 30) return ["警戒", "down"];
+  return ["パニック", "down"];
+}
+
+function tile(q) {
+  const rm = q.removable && !STATIC ? `<button class="rm" data-rm="${esc(q.symbol)}" title="ウォッチリストから削除">×</button>` : "";
+  const name = q.removable ? `${esc(q.name)}` : esc(q.name);
+  if (q.error) return `<div class="tile" data-key="${esc(q.key)}">${rm}<div class="t-name">${name}</div><div class="err">取得失敗: ${esc(q.error)}</div></div>`;
+  const d = digitsOf(q, q.price);
+  const cls = Math.abs(q.changePct) < 0.005 ? "flat" : goodCls(q, q.change);
+  let tag = "";
+  if (q.key === "vix") { const [l, c] = vixTag(q.price); tag = `<span class="tag ${c}">${l}</span>`; }
+  if (q.months) { const c = q.structure === "contango"; tag = `<span class="tag ${c ? "up" : "down"}">${c ? "順ざや" : "逆ざや"}</span>`; }
+  const ch = tileChart(q);
+  const when = q.asOf ? new Date(q.asOf).toLocaleString("ja-JP", { ...JST, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+  const foot = q.removable ? esc(q.symbol) : q.months ? "期近→期先" : ch.label;
+  return `<div class="tile ${cls} ${level(q.changePct)}${q.noChart ? " nochart" : ""}" data-key="${esc(q.key)}" title="${esc(q.note || "クリックでチャート表示")}">
+    ${rm}
+    <div class="t-head"><span class="t-name">${name}${tag}</span><span class="t-pct">${sgn(q.changePct)}${fmt(q.changePct)}%</span></div>
+    <div class="t-price">${fmt(q.price, d)}<span class="t-chg">${sgn(q.change)}${fmt(q.change, d)}</span></div>
+    ${ch.svg}
+    <div class="t-foot"><span>${foot}</span><span>${q.stale ? "前回値 " : ""}${when}</span></div>
+  </div>`;
+}
+
+function linkTile(l) {
+  return `<div class="tile link"><div><div class="t-name">${l.name}</div><div class="desc">${l.desc}</div></div>
+    <a href="${l.url}" target="_blank" rel="noopener">開く ↗</a></div>`;
+}
+
+function renderSections() {
+  const searchVal = document.getElementById("q")?.value || "";
+  document.getElementById("sections").innerHTML = GROUPS.map((g) => {
+    const items = state.quotes.filter((q) => q.group === g.id);
+    const add = g.id === "watch" && STATIC ? `
+      <div class="empty" style="margin-bottom:10px">
+        銘柄の追加・削除は GitHub の <a href="${watchlistEditUrl()}" target="_blank" rel="noopener">watchlist.json を編集 ↗</a>
+        （例：<code>{ "symbol": "7203.T" }</code>。日本株は証券コード＋「.T」、米国株はティッカー）。次回の自動更新で反映されます。
+      </div>` : g.id === "watch" ? `
+      <div class="add">
+        <input id="q" placeholder="銘柄を追加：証券コード（7203）、ティッカー（NVDA）、英語名（toyota）" autocomplete="off">
+        <ul id="results"></ul>
+      </div>
+      ${items.length ? "" : `<div class="empty">まだ銘柄がありません。上の検索ボックスから追加できます。</div>`}` : "";
+    return `<h2>${g.title}</h2>${add}
+      <div class="grid">${items.map(tile).join("")}${(LINKS[g.id] || []).map(linkTile).join("")}</div>`;
+  }).join("");
+  const input = document.getElementById("q");
+  if (!input) return;
+  input.value = searchVal;
+  input.addEventListener("input", onSearchInput);
+  input.addEventListener("keydown", onSearchKey);
+}
+
+document.getElementById("tilerange").addEventListener("click", (e) => {
+  const r = e.target.dataset.r;
+  if (!r) return;
+  state.tileRange = r; store.set("mm.tileRange3", r);
+  syncTileRange();
+  renderSections();
+});
+document.getElementById("tilekind").addEventListener("click", (e) => {
+  const k = e.target.dataset.k;
+  if (!k) return;
+  state.tileKind = k; store.set("mm.tileKind", k);
+  syncTileRange();
+  renderSections();
+});
+function syncTileRange() {
+  document.querySelectorAll("#tilekind button").forEach((b) => b.classList.toggle("on", b.dataset.k === state.tileKind));
+  document.querySelectorAll("#tilerange button").forEach((b) => b.classList.toggle("on", b.dataset.r === state.tileRange));
+}
+
+/* ---------- 銘柄検索・追加 ---------- */
+let searchTimer, searchResults = [], searchIdx = -1;
+function onSearchInput(e) {
+  clearTimeout(searchTimer);
+  const q = e.target.value.trim();
+  if (!q) { renderResults([]); return; }
+  searchTimer = setTimeout(async () => {
+    try {
+      // 4桁の数字は東証コードとして .T を付けて検索
+      const query = /^\d{3}[0-9A-Z]$/.test(q) ? q + ".T" : q;
+      let list = await (await fetch("/api/search?q=" + encodeURIComponent(query))).json();
+      if (!Array.isArray(list) || (!list.length && query !== q)) list = await (await fetch("/api/search?q=" + encodeURIComponent(q))).json();
+      if (document.getElementById("q").value.trim() === q) renderResults(Array.isArray(list) ? list : [], list.error);
+    } catch (err) { renderResults([], err.message); }
+  }, 300);
+}
+function renderResults(list, error) {
+  searchResults = list; searchIdx = -1;
+  const ul = document.getElementById("results");
+  const q = document.getElementById("q").value.trim();
+  ul.innerHTML = error ? `<li class="meta">検索エラー: ${esc(error)}</li>`
+    : !list.length && q ? `<li class="meta">見つかりません。日本語の社名ではなく、証券コードか英語名で検索してください</li>`
+    : list.map((r, i) => `<li data-i="${i}"><span><span class="sym">${esc(r.symbol)}</span>　${esc(r.name)}</span><span class="meta">${esc(r.exchange || "")} ${esc(r.type || "")}</span></li>`).join("");
+}
+function onSearchKey(e) {
+  const lis = document.querySelectorAll("#results li[data-i]");
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (!lis.length) return;
+    searchIdx = (searchIdx + (e.key === "ArrowDown" ? 1 : -1) + lis.length) % lis.length;
+    lis.forEach((li, i) => li.classList.toggle("on", i === searchIdx));
+  } else if (e.key === "Enter" && searchResults.length) {
+    addSymbol(searchResults[Math.max(0, searchIdx)]);
+  } else if (e.key === "Escape") {
+    renderResults([]);
+  }
+}
+async function addSymbol(r) {
+  const ul = document.getElementById("results");
+  ul.innerHTML = `<li class="meta">${esc(r.symbol)} を追加中…</li>`;
+  try {
+    const res = await fetch("/api/watchlist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: r.symbol, name: r.name, direct: !!r.direct }) });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    document.getElementById("q").value = "";
+    await load();
+  } catch (e) {
+    ul.innerHTML = `<li class="meta">追加できませんでした: ${esc(e.message)}</li>`;
+  }
+}
+async function removeSymbol(symbol) {
+  await fetch("/api/watchlist?symbol=" + encodeURIComponent(symbol), { method: "DELETE" });
+  await load();
+}
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".add")) { const ul = document.getElementById("results"); if (ul) ul.innerHTML = ""; }
+});
+
+document.getElementById("sections").addEventListener("click", (e) => {
+  const li = e.target.closest("#results li[data-i]");
+  if (li) { addSymbol(searchResults[+li.dataset.i]); return; }
+  const rm = e.target.closest(".rm");
+  if (rm) { e.stopPropagation(); removeSymbol(rm.dataset.rm); return; }
+  const t = e.target.closest(".tile[data-key]:not(.nochart)");
+  if (t) openChart(t.dataset.key);
+});
+
+/* ---------- チャート（モーダル） ---------- */
+const modal = document.getElementById("modal");
+function openChart(key) {
+  state.sel = key;
+  modal.classList.add("open");
+  document.body.classList.add("modal-open");
+  loadChart();
+}
+function closeChart() {
+  modal.classList.remove("open");
+  document.body.classList.remove("modal-open");
+  document.getElementById("tip").style.display = "none";
+}
+document.getElementById("close").onclick = closeChart;
+modal.addEventListener("click", (e) => { if (e.target === modal) closeChart(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && modal.classList.contains("open")) closeChart(); });
+
+function niceTicks(min, max, n = 5) {
+  const span = max - min || Math.abs(max) || 1;
+  const raw = span / n, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw);
+  const out = [];
+  for (let v = Math.ceil(min / step) * step; v <= max + 1e-9; v += step) out.push(v);
+  return out;
+}
+
+let chartData = null;
+function drawChart() {
+  const box = document.getElementById("chart");
+  box.querySelectorAll("svg, .chart-msg").forEach((n) => n.remove());
+  const q = state.quotes.find((x) => x.key === state.sel) || {};
+  if (!chartData || !modal.classList.contains("open")) return;
+  if (chartData.kind === "curve") return drawCurve(box);
+  const pts = chartData.series;
+  if (pts.length < 2) { box.insertAdjacentHTML("beforeend", `<div class="chart-msg">この期間のデータがありません（休場中など）</div>`); return; }
+
+  const W = box.clientWidth, H = box.clientHeight;
+  const L = 8, R = 62, T = 10, B = 24;
+  const vals = pts.map((p) => p[1]);
+  const candle = state.kind === "candle" && chartData.ohlc;
+  const base = chartData.range === "1d" && chartData.prevClose ? chartData.prevClose : vals[0];
+  const his = candle ? pts.map((p) => p[3]) : vals, los = candle ? pts.map((p) => p[4]) : vals;
+  // 縦軸はデータの最小〜最大に合わせて絞る（0からにはしない）
+  let min = Math.min(...los, chartData.range === "1d" ? base : Infinity);
+  let max = Math.max(...his, chartData.range === "1d" ? base : -Infinity);
+  const padv = (max - min) * 0.08 || Math.abs(max) * 0.01 || 1; min -= padv; max += padv;
+  // 日中チャートは時間ではなく「足の順番」で並べる（夜間・週末の空白を詰める）
+  // ローソク足は各足を等間隔の枠の中央に、ラインは両端まで使って配置
+  const slot = (W - L - R) / pts.length;
+  const x = candle ? (i) => L + slot * (i + 0.5) : (i) => L + (i / (pts.length - 1)) * (W - L - R);
+  const y = (v) => T + (1 - (v - min) / (max - min)) * (H - T - B);
+  const last = vals.at(-1);
+  const cls = goodCls(q, last - base);
+  const color = `var(--${cls})`;
+  const d = digitsOf(q, last);
+
+  const yt = niceTicks(min, max).map((v) => `
+    <line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/>
+    <text class="axis" x="${W - R + 6}" y="${y(v) + 4}">${fmt(v, d > 2 ? d : v >= 1000 ? 0 : 2)}</text>`).join("");
+
+  const intraday = chartData.intraday;
+  const lab = (t) => new Date(t).toLocaleString("ja-JP", intraday && chartData.range === "1d"
+    ? { ...JST, hour: "2-digit", minute: "2-digit" }
+    : { ...JST, month: "numeric", day: "numeric" });
+  const nX = Math.max(2, Math.floor((W - L - R) / 90));
+  const xt = Array.from({ length: nX }, (_, k) => Math.round((k / (nX - 1)) * (pts.length - 1)))
+    .map((i, k) => `<text class="axis" x="${x(i)}" y="${H - 6}" text-anchor="${k === 0 ? "start" : k === nX - 1 ? "end" : "middle"}">${lab(pts[i][0])}</text>`).join("");
+
+  const line = vals.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  const baseLine = chartData.range === "1d" && chartData.prevClose
+    ? `<line x1="${L}" x2="${W - R}" y1="${y(base)}" y2="${y(base)}" stroke="var(--muted)" stroke-dasharray="4 4"/>
+       <text class="axis" x="${L + 4}" y="${y(base) - 5}">前日終値 ${fmt(base, d)}</text>` : "";
+
+  let body;
+  if (candle) {
+    // ローソク足：陽線（終値≧始値）＝上昇色、陰線＝下落色
+    const bw = Math.max(1, Math.min(14, slot * 0.7));
+    body = pts.map(([, c, o, h, l], i) => {
+      const col = c >= o ? "var(--up)" : "var(--down)";
+      const top = y(Math.max(o, c)), bot = y(Math.min(o, c));
+      return `<line x1="${x(i)}" x2="${x(i)}" y1="${y(h)}" y2="${y(l)}" stroke="${col}" stroke-width="1"/>
+        <rect x="${x(i) - bw / 2}" y="${top}" width="${bw}" height="${Math.max(1, bot - top)}" fill="${col}"/>`;
+    }).join("");
+  } else {
+    body = `<path d="${line}L${x(pts.length - 1)},${H - B}L${x(0)},${H - B}Z" fill="${color}" opacity=".08"/>
+    <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
+  }
+
+  box.insertAdjacentHTML("beforeend", `<svg viewBox="0 0 ${W} ${H}">
+    ${yt}${baseLine}
+    ${body}
+    ${xt}
+    <line id="hx" y1="${T}" y2="${H - B}" stroke="var(--muted)" stroke-width="1" visibility="hidden"/>
+    <circle id="hd" r="4.5" fill="${color}" stroke="var(--card)" stroke-width="2" visibility="hidden"/>
+    <rect x="${L}" y="0" width="${W - L - R}" height="${H}" fill="transparent" id="hover"/>
+  </svg>`);
+
+  const tip = document.getElementById("tip"), hx = box.querySelector("#hx"), hd = box.querySelector("#hd");
+  const fmtT = (t) => new Date(t).toLocaleString("ja-JP", intraday
+    ? { ...JST, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }
+    : { ...JST, year: "numeric", month: "numeric", day: "numeric", weekday: "short" });
+  const move = (clientX) => {
+    const rect = box.getBoundingClientRect();
+    const rx = clientX - rect.left - L;
+    const raw = candle ? Math.floor(rx / slot) : Math.round((rx / (W - L - R)) * (pts.length - 1));
+    const i = Math.max(0, Math.min(pts.length - 1, raw));
+    const p = pts[i], [t, v] = p;
+    hx.setAttribute("x1", x(i)); hx.setAttribute("x2", x(i)); hx.setAttribute("visibility", "visible");
+    hd.setAttribute("cx", x(i)); hd.setAttribute("cy", y(v)); hd.setAttribute("visibility", "visible");
+    const pct = ((v - base) / base) * 100;
+    tip.innerHTML = candle
+      ? `${fmtT(t)}　始 ${fmt(p[2], d)}　高 ${fmt(p[3], d)}　安 ${fmt(p[4], d)}　終 <b>${fmt(v, d)}</b>　${sgn(pct)}${fmt(pct)}%`
+      : `${fmtT(t)}　<b>${fmt(v, d)}</b>　${sgn(pct)}${fmt(pct)}%`;
+    tip.style.display = "block";
+    tip.style.left = Math.max(150, Math.min(W - 150, x(i))) + "px";
+    tip.style.top = y(v) + "px";
+  };
+  const hide = () => { tip.style.display = "none"; hx.setAttribute("visibility", "hidden"); hd.setAttribute("visibility", "hidden"); };
+  const hv = box.querySelector("#hover");
+  hv.addEventListener("mousemove", (e) => move(e.clientX));
+  hv.addEventListener("mouseleave", hide);
+  hv.addEventListener("touchmove", (e) => { move(e.touches[0].clientX); e.preventDefault(); }, { passive: false });
+  hv.addEventListener("touchend", hide);
+
+  // 見出し
+  const chg = last - base, pct = (chg / base) * 100;
+  document.getElementById("c-price").textContent = fmt(last, d);
+  const c = document.getElementById("c-chg");
+  c.className = "chg " + cls;
+  const vs = chartData.daily && (chartData.range === "1d" || chartData.range === "5d") ? `${pts.length}営業日前比`
+    : chartData.range === "1d" ? "前日比" : RANGE_LABEL[chartData.range] + "前比";
+  c.textContent = `${sgn(chg)}${fmt(chg, d)}（${sgn(pct)}${fmt(pct)}%） ${vs}`;
+}
+
+// VIX先物の期間構造：横軸＝限月、実線＝最新、点線＝前日、横破線＝VIX現物
+function drawCurve(box) {
+  const ms = chartData.months, spot = chartData.spot;
+  const W = box.clientWidth, H = box.clientHeight;
+  const L = 8, R = 62, T = 14, B = 24;
+  const all = [...ms.map((m) => m.price), ...ms.map((m) => m.prev), ...(spot ? [spot] : [])];
+  let min = Math.min(...all), max = Math.max(...all);
+  const padv = (max - min) * 0.1 || 1; min -= padv; max += padv;
+  const x = (i) => L + 20 + (i / Math.max(1, ms.length - 1)) * (W - L - R - 40);
+  const y = (v) => T + (1 - (v - min) / (max - min)) * (H - T - B);
+  const m1 = ms[0], m2 = ms[1];
+  const contango = !m2 || m2.price >= m1.price;
+  const color = `var(--${contango ? "up" : "down"})`;
+  const path = (key) => ms.map((m, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(m[key]).toFixed(1)}`).join("");
+  const yt = niceTicks(min, max).map((v) => `
+    <line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/>
+    <text class="axis" x="${W - R + 6}" y="${y(v) + 4}">${fmt(v, 1)}</text>`).join("");
+  const step = Math.ceil(ms.length / Math.max(2, Math.floor((W - L - R) / 60)));
+  const xt = ms.map((m, i) => i % step ? "" : `<text class="axis" x="${x(i)}" y="${H - 6}" text-anchor="middle">${m.label}</text>`).join("");
+  const spotLine = spot ? `<line x1="${L}" x2="${W - R}" y1="${y(spot)}" y2="${y(spot)}" stroke="var(--muted)" stroke-dasharray="4 4"/>
+    <text class="axis" x="${L + 4}" y="${y(spot) - 5}">VIX現物 ${fmt(spot)}</text>` : "";
+  const dots = ms.map((m, i) => `<circle cx="${x(i)}" cy="${y(m.price)}" r="3.5" fill="${color}"/>`).join("");
+
+  box.insertAdjacentHTML("beforeend", `<svg viewBox="0 0 ${W} ${H}">
+    ${yt}${spotLine}
+    <path d="${path("prev")}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="3 3"/>
+    <path d="${path("price")}" fill="none" stroke="${color}" stroke-width="2.2"/>
+    ${dots}${xt}
+    <text class="axis" x="${W - R}" y="${T}" text-anchor="end">— 最新　┄ 前日</text>
+    <rect x="${L}" y="0" width="${W - L - R}" height="${H}" fill="transparent" id="hover"/>
+  </svg>`);
+
+  const tip = document.getElementById("tip");
+  const hv = box.querySelector("#hover");
+  const move = (clientX) => {
+    const rx = clientX - box.getBoundingClientRect().left;
+    let i = 0;
+    ms.forEach((_, k) => { if (Math.abs(x(k) - rx) < Math.abs(x(i) - rx)) i = k; });
+    const m = ms[i], ch = m.price - m.prev;
+    tip.innerHTML = `${m.label}（${new Date(m.exp).toLocaleDateString("ja-JP")}満期）　<b>${fmt(m.price)}</b>　${sgn(ch)}${fmt(ch)}`;
+    tip.style.display = "block";
+    tip.style.left = Math.max(130, Math.min(W - 130, x(i))) + "px";
+    tip.style.top = y(m.price) + "px";
+  };
+  hv.addEventListener("mousemove", (e) => move(e.clientX));
+  hv.addEventListener("mouseleave", () => (tip.style.display = "none"));
+  hv.addEventListener("touchmove", (e) => { move(e.touches[0].clientX); e.preventDefault(); }, { passive: false });
+  hv.addEventListener("touchend", () => (tip.style.display = "none"));
+
+  const ch = m1.price - m1.prev, pct = (ch / m1.prev) * 100;
+  document.getElementById("c-price").textContent = fmt(m1.price);
+  const c = document.getElementById("c-chg");
+  c.className = "chg " + (ch <= 0 ? "up" : "down");
+  c.textContent = `${sgn(ch)}${fmt(ch)}（${sgn(pct)}${fmt(pct)}%） 期近・前日比 ／ 期間構造: ${contango ? "順ざや" : "逆ざや"}`;
+}
+
+let chartReq = 0;
+async function loadChart() {
+  const q = state.quotes.find((x) => x.key === state.sel);
+  document.getElementById("c-title").textContent = q ? (q.months ? "VIX先物 期間構造（限月別）" : q.name + (q.removable ? `（${q.symbol}）` : "")) : "";
+  document.getElementById("c-note").textContent = q?.note || "";
+  document.getElementById("tabs").classList.toggle("hide", !!(q && q.months));
+  // 終値しかないデータ（日本10年債・VIX先物の期間構造）はローソク足非対応
+  document.getElementById("kind").classList.toggle("hide", !!(q && (q.months || q.source === "mof")));
+  document.querySelectorAll("#kind button").forEach((b) => b.classList.toggle("on", b.dataset.k === state.kind));
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.r === state.range));
+  document.getElementById("c-price").textContent = "";
+  document.getElementById("c-chg").textContent = "";
+  const box = document.getElementById("chart");
+  box.querySelectorAll("svg, .chart-msg").forEach((n) => n.remove());
+  box.insertAdjacentHTML("beforeend", `<div class="chart-msg">読み込み中…</div>`);
+  const id = ++chartReq;
+  try {
+    const data = await getChart(state.sel, state.range);
+    if (id !== chartReq) return;
+    if (data.error) throw new Error(data.error);
+    chartData = data;
+    drawChart();
+  } catch (e) {
+    if (id !== chartReq) return;
+    chartData = null;
+    box.querySelectorAll(".chart-msg").forEach((n) => n.remove());
+    box.insertAdjacentHTML("beforeend", `<div class="chart-msg">チャート取得失敗: ${esc(e.message)}</div>`);
+  }
+}
+
+document.getElementById("tabs").addEventListener("click", (e) => {
+  const r = e.target.dataset.r;
+  if (!r) return;
+  state.range = r; store.set("mm.range2", r);
+  loadChart();
+});
+document.getElementById("kind").addEventListener("click", (e) => {
+  const k = e.target.dataset.k;
+  if (!k) return;
+  state.kind = k; store.set("mm.kind", k);
+  document.querySelectorAll("#kind button").forEach((b) => b.classList.toggle("on", b.dataset.k === k));
+  drawChart(); // データは同じなので再取得せず描き直すだけ
+});
+let rt;
+window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(drawChart, 120); });
+
+/* ---------- データの読み込み ---------- */
+// GitHub Pages 版：GitHub Actions が置いた data/*.json を読む（STATIC = true）
+// ローカル版（node server.js）：/api/* を呼ぶ（STATIC = false）
+let STATIC = null, staticMarket = null, staticCharts = null;
+const DAYS = { "1mo": 31, "3mo": 92, "6mo": 183, "1y": 366 };
+
+async function getMarket(refresh) {
+  if (STATIC !== false) {
+    try {
+      const r = await fetch("data/market.json?t=" + Date.now()); // キャッシュを避けて常に最新を取得
+      if (r.ok) { STATIC = true; staticMarket = await r.json(); staticCharts = null; return staticMarket; }
+    } catch {}
+    if (STATIC === null) STATIC = false;
+    else throw new Error("データファイルを読み込めませんでした");
+  }
+  return (await fetch("/api/market" + (refresh ? "?refresh" : ""))).json();
+}
+
+async function getChart(key, range) {
+  if (!STATIC) return (await fetch(`/api/chart?key=${encodeURIComponent(key)}&range=${range}`)).json();
+  const m = staticMarket, q = m?.quotes.find((x) => x.key === key);
+  if (!q || q.error) throw new Error("この銘柄のデータがありません");
+  if (q.months) return { key, kind: "curve", months: q.months, spot: m.quotes.find((x) => x.key === "vix")?.price ?? null };
+  if (q.noChart) throw new Error("この銘柄はチャート非対応です");
+  const recent = (days) => q.daily.filter((r) => r[0] >= Date.now() - days * 86400e3);
+  if (q.source === "mof") return { key, range, daily: true, series: DAYS[range] ? recent(DAYS[range]) : q.daily.slice(-5) };
+  if (range === "1d" || range === "5d") {
+    staticCharts ??= await (await fetch("data/charts.json?t=" + m.fetchedAt)).json();
+    const c = staticCharts[key]?.[range];
+    if (!c) throw new Error("この期間のデータがありません");
+    return c;
+  }
+  // 1ヶ月〜1年は日足から切り出す
+  const series = recent(DAYS[range]);
+  return { key, range, intraday: false, ohlc: series[0]?.length >= 5, series };
+}
+
+// GitHub Pages 版のウォッチリスト編集リンク（https://ユーザー.github.io/リポジトリ/ → GitHub の編集画面）
+function watchlistEditUrl() {
+  const owner = location.hostname.split(".")[0];
+  const repo = location.pathname.split("/").filter(Boolean)[0] || "";
+  return `https://github.com/${owner}/${repo}/edit/main/watchlist.json`;
+}
+
+/* ---------- 読み込み ---------- */
+async function load(refresh = false) {
+  const btn = document.getElementById("refresh");
+  btn.disabled = true; btn.textContent = "更新中…";
+  try {
+    const data = await getMarket(refresh);
+    if (data.error) throw new Error(data.error);
+    state.quotes = data.quotes;
+    renderSections();
+    document.getElementById("updated").textContent = `データ取得 ${dt(data.fetchedAt)}${STATIC ? "（自動更新：朝は15分ごと、他は1時間ごと）" : ""} ・ タイルをクリックでチャート`;
+  } catch (e) {
+    document.getElementById("updated").textContent = `データ取得に失敗: ${e.message}`;
+  } finally {
+    btn.disabled = false; btn.textContent = "更新";
+  }
+}
+document.getElementById("refresh").onclick = () => load(true);
+syncTileRange();
+load();
+</script>
+</body>
+</html>

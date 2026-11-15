@@ -1,0 +1,56 @@
+# マーケットデータを取得して、画面と一緒に GitHub Pages に公開する
+name: collect
+
+on:
+  schedule:
+    # GitHub の cron は UTC。日本時間 = UTC + 9時間
+    - cron: "*/15 20-23,0 * * *"   # 日本時間 5:00〜9:45 は15分ごと
+    - cron: "5 1-19 * * *"         # それ以外は1時間ごと
+  push:
+    branches: [main]               # コードや watchlist.json を変更したらすぐ反映
+  workflow_dispatch: {}            # GitHub の画面から手動実行もできる
+
+permissions:
+  contents: write    # 60日放置で定期実行が止まらないよう、月1回の空コミットに使う
+  pages: write
+  id-token: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # 依存パッケージ不要（Node 標準機能のみ）なので npm install は行わない
+      - name: データ取得
+        run: |
+          mkdir -p _site
+          cp -R public/. _site/
+          node scripts/collect.js _site/data
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+      # 公開リポジトリは60日間コミットがないと定期実行が自動停止されるため、最終コミットが30日以上前なら空コミットする
+      - name: 定期実行の維持
+        if: github.event_name == 'schedule'
+        run: |
+          last=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - last )) -gt $((30 * 86400)) ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "keepalive: 定期実行の維持"
+            git push
+          fi
